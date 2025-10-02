@@ -13,7 +13,7 @@ import sklearn
 print(f"scikit-learn version: {sklearn.__version__}")
 
 # Flag to toggle between grid search and pre-set parameters
-USE_GRID_SEARCH = False  # Changed to True for better hyperparameter tuning
+USE_GRID_SEARCH = True  # Changed to True for better hyperparameter tuning
 
 # Define pre-set parameters (adapted for classifiers)
 best_params = {
