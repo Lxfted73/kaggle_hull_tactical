@@ -8,6 +8,12 @@ def clean_data(train_path='hull-tactical-market-prediction/train.csv', test_path
     try:
         train = pd.read_csv(train_path)
         test = pd.read_csv(test_path)
+        
+        # Optional: Explicitly remove 'is_scored' from test if present (uncomment if needed)
+        # if 'is_scored' in test.columns:
+        #     test = test.drop(columns=['is_scored'])
+        #     print("Removed 'is_scored' from test data.")
+        
         print(f"Train data loaded. Shape: {train.shape}")
         print(f"Test data loaded. Shape: {test.shape}")
         print("Train columns:", train.columns.tolist())
@@ -23,7 +29,6 @@ def clean_data(train_path='hull-tactical-market-prediction/train.csv', test_path
         if col in train.columns and col in test.columns:
             date_col = col
             break
-
     if date_col:
         print(f"Using {date_col} as date column")
         train = train.sort_values(date_col)
@@ -141,11 +146,16 @@ def clean_data(train_path='hull-tactical-market-prediction/train.csv', test_path
                 columns=feature_types['D'], index=X_test.index
             )
 
-    # Step 8: Add back auxiliary columns and test-specific columns
-    test_specific_cols = ['market_forward_excess_returns', 'is_scored']
-    aux_cols = ['forward_returns', 'risk_free_rate'] + ([col for col in test_specific_cols if col in test.columns])
+    # Step 8: Add back auxiliary columns (exclude target for train to avoid duplication; include for test)
+    test_specific_cols = ['market_forward_excess_returns']  # Explicitly exclude 'is_scored'
+    aux_cols = ['forward_returns', 'risk_free_rate']
+    
+    # For test, add target if present
+    if 'market_forward_excess_returns' in test.columns:
+        aux_cols.append('market_forward_excess_returns')
+    
     for col in aux_cols:
-        if col in train.columns:
+        if col in train.columns and col != target_col:  # Skip adding target to train (avoid duplication)
             X_train_imputed[col] = train[col].reindex(X_train_imputed.index)
             print(f"Added {col} back to train data")
         if col in test.columns:
@@ -155,6 +165,10 @@ def clean_data(train_path='hull-tactical-market-prediction/train.csv', test_path
     # Step 9: Prepare final datasets
     train_clean = pd.concat([X_train_imputed, y_train], axis=1).dropna(subset=[target_col])
     test_clean = X_test_imputed
+    
+    # Safety check: Remove any duplicate columns (e.g., if target somehow duplicates)
+    train_clean = train_clean.loc[:, ~train_clean.columns.duplicated()]
+    test_clean = test_clean.loc[:, ~test_clean.columns.duplicated()]
 
     # Step 10: Save cleaned data
     train_clean.to_csv('train_cleaned.csv', index=False)
@@ -165,7 +179,6 @@ def clean_data(train_path='hull-tactical-market-prediction/train.csv', test_path
     print("Cleaned test shape:", test_clean.shape)
     print("Train cleaned columns:", train_clean.columns.tolist())
     print("Test cleaned columns:", test_clean.columns.tolist())
-
     return train_clean, test_clean
 
 if __name__ == "__main__":
