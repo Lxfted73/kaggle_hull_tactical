@@ -22,13 +22,28 @@ if 'date_id' not in train_df.columns:
 print("Sorting train data by date_id...")
 train_df = train_df.sort_values('date_id')
 
-# Select the last 180 rows
-print("Extracting last 180 days...")
+# Select the last 180 rows for test.csv
+print("Extracting last 180 days for test.csv...")
 test_df = train_df.tail(180).copy()
 print(f"Test data shape: {test_df.shape}")
 
-# Save to test.csv
+# Add is_scored column (all True for public leaderboard test set)
+test_df['is_scored'] = True
+print("Added is_scored column (all True).")
+
+# Remove the last 180 rows from train.csv
+print("Removing last 180 days from train.csv...")
+train_df = train_df.iloc[:-180].copy()
+print(f"Updated train data shape: {train_df.shape}")
+
+# Save test.csv
 print(f"Saving test data to {test_path}...")
 test_df.to_csv(test_path, index=False)
 print(f"Test data saved successfully. Shape: {test_df.shape}")
 print("Test columns:", list(test_df.columns))
+
+# Save updated train.csv
+print(f"Saving updated train data to {train_path}...")
+train_df.to_csv(train_path, index=False)
+print(f"Updated train data saved successfully. Shape: {train_df.shape}")
+print("Train columns:", list(train_df.columns))
