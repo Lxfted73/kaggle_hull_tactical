@@ -54,39 +54,39 @@ class VerboseGridSearchCV(GridSearchCV):
         return super()._fit(X, y, groups, **fit_params)
 
 # Load data
-print("Loading train.csv...")
+print("Loading train.csv and test.csv...")
 try:
-    train = pd.read_csv('hull-tactical-market-prediction/train.csv')
+    train = pd.read_csv('train_cleaned.csv')
+    test = pd.read_csv('test_cleaned.csv')
     print(f"Train data loaded. Shape: {train.shape}")
-except FileNotFoundError:
-    raise FileNotFoundError("train.csv not found in hull-tactical-market-prediction directory.")
+    print(f"Test data loaded. Shape: {test.shape}")
+except FileNotFoundError as e:
+    raise FileNotFoundError(f"{e.filename} not found in hull-tactical-market-prediction directory.")
 
-# Ensure date_id is present
-if 'date_id' not in train.columns:
-    raise ValueError("train.csv must contain 'date_id' column.")
+# Ensure date_id is present in both datasets
+if 'date_id' not in train.columns or 'date_id' not in test.columns:
+    raise ValueError("Both train.csv and test.csv must contain 'date_id' column.")
 
-# Sort by date_id and create test set (last 180 days)
+# Sort train data by date_id
 print("Sorting train data by date_id...")
 train_sorted = train.sort_values(by='date_id').reset_index(drop=True)
-test = train_sorted.tail(180).copy()
 test['is_scored'] = True  # All rows scored for public leaderboard
-print(f"Test set created from last 180 days. Shape: {test.shape}")
 
 # Define feature columns (exclude target and non-features)
 target_col = 'market_forward_excess_returns'
 feature_cols = [col for col in train.columns if col not in ['date_id', target_col, 'forward_returns', 'risk_free_rate']]
 print(f"Number of features: {len(feature_cols)}")
 
+# Ensure test set has the same feature columns
+missing_cols = [col for col in feature_cols if col not in test.columns]
+if missing_cols:
+    raise ValueError(f"Test set is missing columns: {missing_cols}")
+
 # Prepare train and test data
 X_train = train_sorted[feature_cols]
 y_train = train_sorted[target_col]
 X_test = test[feature_cols]
 test_ids = test['date_id']
-
-# Handle NaNs
-print("Handling NaNs in train and test data...")
-X_train = X_train.ffill().fillna(0)
-X_test = X_test.ffill().fillna(0)
 
 # Scale features
 print("Scaling features...")
