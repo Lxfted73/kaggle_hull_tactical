@@ -28,6 +28,10 @@ non_zero_nulls = null_df[null_df['Null_Count'] > 0]
 numeric_features = train[feature_cols].select_dtypes(include=[np.number]).columns.tolist()
 n_features = len(numeric_features)
 
+# Print summary statistics for numeric features
+print("\n=== Summary Statistics for Numeric Features ===")
+print(train[numeric_features].describe())
+
 # Correlation for heatmap
 print("\n=== Correlation Analysis ===")
 corrs = train[feature_cols].corrwith(train[target_col]).abs().sort_values(ascending=False)
@@ -52,11 +56,43 @@ with PdfPages(pdf_path) as pdf:
     pdf.savefig(fig)
     plt.close(fig)
     
-    # Pages for Histograms
-    figs_per_page = 10
-    n_pages = (n_features + figs_per_page - 1) // figs_per_page
+    # Pages for Summary Statistics (10 features per page, starting from Page 2)
+    summary_df = train[numeric_features].describe().round(4)  # Round for readability
+    summary_rows = summary_df.index.tolist()
+    stats_per_page = 10
+    n_summary_pages = (n_features + stats_per_page - 1) // stats_per_page
+    current_page = 2  # Starting after nulls
     
-    for page in range(n_pages):
+    for page in range(n_summary_pages):
+        start_idx = page * stats_per_page
+        end_idx = min(start_idx + stats_per_page, n_features)
+        page_features = numeric_features[start_idx:end_idx]
+        page_summary_df = summary_df[page_features]
+        
+        fig, ax = plt.subplots(figsize=(12, 8))
+        ax.axis('off')
+        summary_data = page_summary_df.values
+        summary_cols = page_summary_df.columns.tolist()
+        table = ax.table(cellText=summary_data,
+                         colLabels=summary_cols,
+                         rowLabels=summary_rows,
+                         cellLoc='center',
+                         loc='center',
+                         bbox=[0, 0, 1, 1])
+        table.auto_set_font_size(False)
+        table.set_fontsize(7)
+        table.scale(1, 1.5)  # Adjust for multi-row
+        ax.set_title(f'Summary Statistics for Numeric Features - Features {start_idx+1} to {end_idx} (Page {current_page})', fontsize=14, pad=20)
+        plt.tight_layout()
+        pdf.savefig(fig, bbox_inches='tight')
+        plt.close(fig)
+        current_page += 1
+    
+    # Pages for Histograms (10 per page)
+    figs_per_page = 10
+    n_hist_pages = (n_features + figs_per_page - 1) // figs_per_page
+    
+    for page in range(n_hist_pages):
         start_idx = page * figs_per_page
         end_idx = min(start_idx + figs_per_page, n_features)
         page_features = numeric_features[start_idx:end_idx]
@@ -77,15 +113,16 @@ with PdfPages(pdf_path) as pdf:
             else:
                 axes[i].axis('off')
         
-        plt.suptitle(f'Histograms of Features (Page {page+1})', fontsize=12)
+        plt.suptitle(f'Histograms of Features - Features {start_idx+1} to {end_idx} (Page {current_page})', fontsize=12)
         plt.tight_layout()
         pdf.savefig(fig)
         plt.close(fig)
+        current_page += 1
     
     # Last Page: Correlation Heatmap
     fig, ax = plt.subplots(figsize=(10, 8))
     sns.heatmap(corr_df, annot=False, cmap='coolwarm', center=0, fmt='.2f', ax=ax)
-    ax.set_title(f'Correlation Heatmap: Top {top_n} Features + Target')
+    ax.set_title(f'Correlation Heatmap: Top {top_n} Features + Target (Page {current_page})')
     plt.tight_layout()
     pdf.savefig(fig)
     plt.close(fig)
