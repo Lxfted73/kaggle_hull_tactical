@@ -25,6 +25,7 @@ from gluonts.torch.model.tft import TemporalFusionTransformerEstimator
 from gluonts.dataset.pandas import PandasDataset
 from gluonts.evaluation import make_evaluation_predictions, Evaluator # Added for tutorial alignment
 from datetime import datetime  # Added for timestamps
+from pytorch_lightning.callbacks import EarlyStopping
 # Optimize PyTorch for Tensor Cores (RTX 4060)
 torch.set_float32_matmul_precision('high')
 
@@ -98,6 +99,13 @@ missing_cols = [col for col in feature_cols if col not in test.columns]
 if missing_cols:
     raise ValueError(f"Test set is missing columns: {missing_cols}")
 
+# Concatenate last N days of train as history for test (N = context_length + buffer)
+history_length = 200  # Adjust: enough for context (30) + plot buffer (e.g., 170 visible history)
+train_tail = train_sorted.tail(history_length).copy()
+full_test = pd.concat([train_tail, test], ignore_index=True)
+full_test['item_id'] = 'SP500'
+print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Full test dataframe length: {len(full_test)} (with {history_length} history points)")
+
 # Create PandasDataset
 print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Creating PandasDataset...")
 train_ds = PandasDataset.from_long_dataframe(
@@ -109,8 +117,8 @@ train_ds = PandasDataset.from_long_dataframe(
     feat_dynamic_real=feature_cols
 )
 test_ds = PandasDataset.from_long_dataframe(
-    dataframe=test,
-    target=target_col if 'market_forward_excess_returns' in test.columns else None, # Handle if no target in test
+    dataframe=full_test,
+    target=target_col if 'market_forward_excess_returns' in full_test.columns else None, # Handle if no target in test
     item_id="item_id",
     timestamp="date_id",
     freq="D",
@@ -125,14 +133,16 @@ tft_estimator = TemporalFusionTransformerEstimator(
     num_heads=4,
     freq='D',
     time_features=None, # No built-in due to synthetic dates
-    trainer_kwargs={ # Dict passed to Lightning Trainer
-        "max_epochs": 25,
-        "accelerator": "gpu" if torch.cuda.is_available() else "cpu",
-        "devices": 1 if torch.cuda.is_available() else None,
-        "enable_progress_bar": True, # For logging
-        "logger": True, # Optional: For monitoring
-    }
 )
+
+trainer_kwargs={
+    "max_epochs": 150,
+    "accelerator": "gpu" if torch.cuda.is_available() else "cpu",
+    "devices": 1 if torch.cuda.is_available() else None,
+    "enable_progress_bar": True,
+    "logger": True,  # Use TensorBoardLogger for easy viz if you want
+    "callbacks": [EarlyStopping(monitor="val_loss", patience=15, mode="min")],  # Assumes you have val_loss logged
+}
 
 # Train TFT
 print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Training TFT model...")
@@ -158,17 +168,41 @@ print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Length of test_preds:",
 if len(test_preds) != len(test):
     raise ValueError(f"Prediction length {len(test_preds)} does not match test set length {len(test)}")
 
-# Optional: Plot forecast fan (tutorial-inspired visualization)
+# Debug prints for plotting
+print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] TS length: {len(tss[0])}")  # Should be >210 now
+print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Forecast start: {forecasts[0].start_date}")
+print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Slice length: {len(tss[0][-(len(test_preds) + 30):])}")  # Should be 210
+
+# Optional: Plot forecast fan (tutorial-inspired visualization) - Simplified GluonTS-native version
+print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Preparing simple GluonTS plot...")
+
+# Use the full TS (tss[0]) for "true values" (historical + GT, sliced to last ~210 for focus)
+# If tss[0] is DataFrame (as in your setup), plot directly; else use TimeSeries .plot()
+ts_for_plot = tss[0][-(len(test_preds) + 30):]  # Last 210 points (context + test)
+
 fig, ax = plt.subplots(1, 1, figsize=(12, 6))
-tss[0][- (len(test_preds) + 30) :].plot(label="Historical + GT", color="black", linewidth=2) # Last context + test
-forecasts[0].plot(color="blue") # Fan with 50%/90% quantiles
+
+# Plot historical + GT (black line)
+if hasattr(ts_for_plot, 'plot'):
+    # TimeSeries case: Use native .plot()
+    ts_for_plot.plot(ax=ax, color="black", label="Historical + GT", linewidth=2)
+else:
+    # DataFrame case: Direct pandas plot (handles PeriodIndex via .to_timestamp() internally)
+    ts_for_plot.plot(ax=ax, color="black", label="Historical + GT", linewidth=2, legend=False)  # Avoid duplicate legend
+
+# Plot forecasts (fan with quantiles)
+for forecast in forecasts:
+    forecast.plot(ax=ax, color="blue")  # Native fan (50%/90% by default)
+
 ax.set_title("TFT Forecast: S&P 500 Excess Returns (with Uncertainty)")
 ax.set_ylabel("Excess Returns")
-ax.legend()
+ax.legend(["Historical + GT"], loc="upper left", fontsize="x-large")  # Simplified legend
+plt.xticks(rotation=45)
 plt.tight_layout()
-plt.savefig(f'forecast_plot_{run_timestamp}.png', dpi=300, bbox_inches='tight') # Save as PNG with timestamp
+plt.savefig(f'forecast_plot_{run_timestamp}.png', dpi=300, bbox_inches='tight')
 plt.show()
 
+print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Simple plot saved: forecast_plot_{run_timestamp}.png")
 # Save submission
 submission = pd.DataFrame({
     'date_id': test['original_date_id'],
